@@ -1,0 +1,20 @@
+import Dexie, { type Table } from 'dexie';
+import { type Event, type Incident, normalize } from './core';
+
+class TraceDatabase extends Dexie { incidents!:Table<Incident,string>;constructor(){super('traceforge-v1');this.version(1).stores({incidents:'id,createdAt,source'})} }
+export const db=new TraceDatabase();
+export async function listIncidents(){return db.incidents.orderBy('createdAt').reverse().toArray()}
+export async function saveIncident(i:Incident){await db.incidents.put(i)}
+export async function getIncident(id:string){return db.incidents.get(id)}
+export async function deleteIncident(id:string){await db.incidents.delete(id)}
+
+const definitions=[
+  {id:'api-latency',title:'API latency cascade',description:'Database contention slows checkout, timeouts propagate, and retries amplify traffic.',services:['edge','checkout-api','orders-db'],base:'2026-10-22T09:30:00.000Z',entries:[
+    [0,'edge','info','request','Checkout request accepted','req-104',32], [110,'checkout-api','info','query','Loading active cart','req-104',48], [240,'orders-db','warning','query','Connection pool wait exceeds baseline','req-104',1240], [1650,'checkout-api','warning','timeout','Order lookup nearing timeout','req-104',1800], [2510,'edge','error','timeout','Checkout request timed out','req-104',2500], [2800,'edge','warning','retry','Client retries checkout','req-104',0], [3120,'orders-db','critical','pool','Connection pool saturated','req-105',2200], [4800,'checkout-api','error','request','Retry request failed','req-105',1600], [7200,'orders-db','info','recovery','Pool queue decreases after load shedding','req-106',90]]},
+  {id:'auth-failure',title:'Authentication failure',description:'Token validation errors propagate into unauthorized responses across dependent endpoints.',services:['gateway','auth-service','profile-api'],base:'2026-10-23T12:15:00.000Z',entries:[
+    [0,'gateway','info','request','Profile request received','req-201',14],[130,'auth-service','warning','token','Token signature validation failed','req-201',43],[250,'gateway','error','response','Request rejected with 401','req-201',22],[600,'profile-api','warning','dependency','User context unavailable for request','req-201',0],[1200,'auth-service','error','token','Validation failures exceed baseline','req-202',36],[1920,'gateway','error','response','Account endpoint returns 401','req-202',28],[4200,'auth-service','info','recovery','New signing key loaded','req-203',20],[5600,'gateway','info','response','Authenticated request succeeds','req-203',90]]},
+  {id:'dependency-outage',title:'Service dependency outage',description:'Payment provider availability drops, upstream operations fail, then a recovery event appears.',services:['web-api','payment-service','provider'],base:'2026-10-24T16:42:00.000Z',entries:[
+    [0,'web-api','info','request','Payment initiated','req-301',23],[180,'payment-service','info','call','Calling payment provider','req-301',60],[980,'provider','error','availability','Provider connection refused','req-301',800],[1280,'payment-service','warning','retry','Retrying provider call','req-301',0],[2300,'provider','error','timeout','Provider did not respond','req-301',1000],[2500,'web-api','critical','response','Payment request failed','req-301',2400],[4900,'provider','info','recovery','Provider health check passing','req-302',30],[5300,'payment-service','info','call','Payment provider response received','req-302',120]]}
+] as const;
+export const demoCatalog=definitions.map(({id,title,description,services})=>({id,title,description,services}));
+export function demoIncident(id:string):Incident|undefined {const def=definitions.find(d=>d.id===id);if(!def)return;const events:Event[]=def.entries.map(([offset,service,severity,eventType,message,requestId,durationMs],index)=>normalize({id:`${id}-${index+1}`,timestamp:new Date(Date.parse(def.base)+offset).toISOString(),service,severity,eventType,message,requestId,traceId:`trace-${requestId}`,durationMs},index,{},'synthetic'));return {id:def.id,title:def.title,description:def.description,source:'synthetic',createdAt:new Date().toISOString(),events,findings:[],annotations:[]}}
