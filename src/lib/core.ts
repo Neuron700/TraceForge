@@ -17,7 +17,8 @@ export function guessMapping(columns:string[]):Record<string,string>{ const resu
 export function normalize(row:Record<string,unknown>, index:number, mapping:Record<string,string>={}, source='import'):Event{
   const get=(field:string)=>row[mapping[field]||Object.keys(row).find(k=>aliases[field]?.includes(key(k)))||field];
   const raw=get('timestamp'); if(raw===undefined||raw===null||raw==='') throw new Error('timestamp is missing');
-  const parsed=typeof raw==='number'?new Date(raw < 1e11?raw*1000:raw):new Date(String(raw)); if(Number.isNaN(parsed.getTime()))throw new Error('timestamp is invalid');
+  const numeric=typeof raw==='number'||typeof raw==='string'&&/^\d{10,13}$/.test(raw.trim());
+  const parsed=numeric?new Date(Number(raw)<1e11?Number(raw)*1000:Number(raw)):new Date(String(raw)); if(Number.isNaN(parsed.getTime()))throw new Error('timestamp is invalid');
   const message=get('message');if(typeof message!=='string'||!message.trim())throw new Error('message is missing');
   const rawSeverity=String(get('severity')||'info').toLowerCase();const severity=rawSeverity==='warn'?'warning':rawSeverity==='fatal'?'critical':rawSeverity;
   if(!severitySchema.safeParse(severity).success)throw new Error(`unknown severity: ${rawSeverity}`);
